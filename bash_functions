@@ -1,4 +1,95 @@
 # MISC
+
+## DOCKER RELATED
+
+buildimage(){
+	docker build -t $1 .
+}
+
+removeimage(){
+	docker rmi -f $1
+}
+
+
+## GIT RELATED
+switchbranch(){
+	if [ -z "$1" ]
+	then
+		git checkout "$(git branch | percol | awk '{print $1}')"
+	else
+		git checkout "$1"
+	fi
+}
+
+# GIT
+gitdifforigin(){
+	CURRENT_BRANCH="$(git branch | grep \* | awk '{print $2}')"
+	git diff "${CURRENT_BRANCH}" "origin/${CURRENT_BRANCH}"
+}
+
+gitdiffupstream(){
+	git fetch -v upstream
+	CURRENT_BRANCH="$(git branch | grep \* | awk '{print $2}')"
+	git diff "${CURRENT_BRANCH}" "upstream/master" "$2"
+}
+
+gitstatorigin(){
+	CURRENT_BRANCH="$(git branch | grep \* | awk '{print $2}')"
+	git diff --name-only "${CURRENT_BRANCH}" "origin/${CURRENT_BRANCH}"
+}
+
+gittwdifforigin(){
+	git fetch -v upstream
+	FILE="$1"
+	NEWFILE="$1.HEAD.$(date +%s)"
+	git fetch -v &&  git show upstream/master:"./$FILE" > "./$NEWFILE"
+	twdiff "./$FILE" "./$NEWFILE"
+}
+
+gittwdiffnext(){
+	git fetch -v upstream
+	FILE="$1"
+	NEWFILE="$1.HEAD.$(date +%s)"
+	git fetch -v &&  git show upstream/next:"./$FILE" > "./$NEWFILE"
+	twdiff "./$FILE" "./$NEWFILE"
+}
+
+
+gitac(){
+	ARGS="$@"
+	FILES="${@:1:${#}-1}" # GET ALL ARGS BUT LAST
+	LASTFILE="${FILES##* }"
+	MESSAGE="${@: -1}"
+
+	if [ "$LASTFILE" == "-m" ]; then
+		FILES="${FILES% *}" # GET ALL FILES BUT LAST
+	fi
+
+	git add $FILES && git commit $FILES -m "$MESSAGE"
+}
+
+gitupdate(){
+	git pull --rebase upstream $1
+}
+
+pullreq(){
+	git fetch $1 pull/$2/head:$3
+	git checkout $3
+}
+
+untracked(){
+	git status . | grep -A10000 'Untracked files' | tail -n +4 | sed 's/^..//' | awk 'NR>1{print buf}{buf = $0}'
+}
+
+edituntracked(){
+	vi $(untracked | percol)
+}
+
+## SHOW WHICH PROCESS IS LISTENING ON A SPECIFIC PORT
+onport(){
+	lsof -i ":$1"
+}
+
 whichreally(){
 	BIN="$1";
 	ls -alh "$(which ${BIN})"
@@ -10,33 +101,34 @@ members(){
 			printf "$user "; 
 			dsmemberutil checkmembership -U "$user" -G "$*"; 
 		done | grep "is a member" | cut -d " " -f 1;
- };
+};
 
-# GIT
-gitdifforigin(){
-	CURRENT_BRANCH="$(git branch | grep \* | awk '{print $2}')"
-	git diff "${CURRENT_BRANCH}" "origin/${CURRENT_BRANCH}"
+checkoutremote(){
+	git fetch $1
+	git checkout -b $1/$2 $1/$2
+};
+
+taketheirs(){
+	git checkout --theirs "$1" && git add $1
+};
+
+takemine(){
+	git checkout --ours "$1" && git add $1
+};
+
+
+
+## MONIT PROCESS
+monitprocesses(){
+	while true; do	
+		clear
+		echo "\033[4mMONIT PROCESSES\033[0m"
+		ps aux | head -n 1
+		ps aux | grep $1 | grep -v grep
+		sleep 2
+	done
+	
 }
-
-gitstatorigin(){
-	CURRENT_BRANCH="$(git branch | grep \* | awk '{print $2}')"
-	git diff --name-only "${CURRENT_BRANCH}" "origin/${CURRENT_BRANCH}"
-}
-
-gitac(){
-	FILE="$1"
-	MESSAGE="$2"
-
-	if [ "$MESSAGE" == "-m" ]; then
-		MESSAGE="$3"
-	fi
-	git add "$FILE" && git commit "$FILE" -m "$MESSAGE"
-}
-
-gitupdate(){
-	git pull --rebase upstream $1
-}
-
 
 
 # NODE FUNCTIONS
@@ -44,18 +136,48 @@ nodeprocesses(){
 	while true; do	
 		clear
 		echo "\033[4mNODE PROCESSES\033[0m"
-		echo "USER				 PID  %CPU %MEM		 VSZ	RSS   TT  STAT STARTED		TIME COMMAND"
+		ps aux | head -n 1
 		ps aux | egrep '^.+[0-9]:[0-9]{2}\.[0-9]{2}\s(node|\/(\w|\/)+\/node).*$'
 		sleep 2
 	done
 	
 }
 
+javaprocesses(){
+	while true; do
+		clear
+		echo "\033[4mJAVA PROCESSES\033[0m"
+		ps aux | head -n 1
+		ps aux | grep java | grep -v grep
+		sleep 2
+	done
+}
+
+inspectprocess(){
+	PID="$1"
+	while true; do
+		clear
+		echo "\033[4m${PID} PROCESSES\033[0m"
+		ps aux | head -n 1
+		ps aux | grep $PID
+		sleep 2
+	done
+}
+
+# MEMCACHED
+
+flushcache(){
+	{ echo "flush_all"; sleep 1; } | telnet $@
+	
+}
+v5flushcache(){
+		flushcache localhost 11211
+}
+
 trimit(){
 	echo "$1" | sed 's/ *$//' | sed 's/^ *//'
 }
 
-
 # Opens a new tab in the current Terminal window and optionally executes a command.
 # When invoked via a function named 'newwin', opens a new Terminal *window* instead.
 newtab() {
@@ -800,14 +922,76 @@ newwin() {
 
 
 
-workspace(){
-	workspace=(ua-frontend ua-b2c ua-cache ua-cms ua-common ua-mongo-models ua-runtime webflow)
-
-	for package in ${workspace[@]}; do 
-		newtab eval "cd /git/${package}; sleep 1; echo -n -e '\033]0;${package}\007'"
-	
+v6workspace(){
+	workspace=(ua-b2c ua-cache ua-cms ua-common ua-mongo-models ua-runtime ua-designer ua-media)
+	for package in ${workspace[@]}; do
+		newtab eval "cd /git/${package}; sleep 2; echo -n -e '\033]0;${package}\007'; ~/workspace/scripts/update_repo.sh"
 	done;
+}
 
+b2bworkspace(){
+	workspace=(ua-b2b-schema ua-b2b-services ua-b2b)
+	for package in ${workspace[@]}; do
+		newtab eval "cd /git/${package}; sleep 2; echo -n -e '\033]0;${package}\007'; git checkout master && git pull upstream master"
+	done;
+}
+
+createschema(){
+	echo "create schema public authorization postgres" | psql b2b
+}
+
+resetschema(){
+	echo "drop schema public cascade; create schema public authorization postgres" | psql b2b
+}
+
+b2bsetowner(){
+	for tbl in `psql -qAt -c "select tablename from pg_tables where schemaname = 'public';" b2b`; do
+		psql -c "alter table $tbl owner to postgres" b2b
+	done
+
+	for tbl in `psql -qAt -c "select viewname from pg_views where schemaname = 'public';" b2b`; do
+		psql -c "alter view $tbl owner to postgres" b2b
+	done
+}
+
+updateb2bschema(){
+	cd /git/ua-b2b-schema
+	./migrate.sh
+	cd -
+}
+
+#rebuildb2bschema(){
+#	resetschema
+#	cd /git/ua-b2b-schema/
+#	./migrate.sh demo
+#	cd -
+#}
+
+b2btestdata(){
+	resetschema
+	CURRENT_DIR="$(pwd)"
+	cd /git/ua-b2b-schema
+	./migrate.sh tables
+	cd /git/ua-b2b-services/testingcommon/src/main/resources/
+	./migrate-test.sh
+	cd $CURRENT_DIR
+}
+
+
+
+
+function ask_yes_or_no() {
+    read -p "$1 ([y]es or [N]o): "
+    case $(echo $REPLY | tr '[A-Z]' '[a-z]') in
+        y|yes) echo "yes" ;;
+        *)     echo "no" ;;
+    esac
+}
+
+dropremotebranch(){
+	if [[ "yes" == $(ask_yes_or_no "Are you sure you want to drop origin/$1") ]]; then
+		git push origin :$1
+	fi
 }
 
 uniqcapture(){
@@ -815,3 +999,147 @@ uniqcapture(){
 	REGEX="$2"
 	cat "$FILE" | perl -n -e echo "/$REGEX/ && print \$1" | sort -u
 }
+
+
+updateis(){
+	echo $OLDPWD
+	cd /git/ua-datacenter-utils
+	git --git-dir=/git/ua-datacenter-utils/.git --work-tree=/git/ua-datacenter-utils pull origin master
+	node /git/ua-datacenter-utils/alias.js > ~/ua_idc.sh
+	source ~/ua_idc.sh
+}
+
+killscreens(){
+	screen -ls | awk '{print $1}' | awk 'BEGIN { FS = "." } ; {print $1}' | tail -n +2 | sed '$d' | sed '$d' | while read line; do kill -15 $line; done;
+}
+
+killsbt(){
+	ps aux | grep sbt | grep -v grep | awk '{ print $2 }' | while read line; do kill -15 $line; done;
+}
+
+grepkill(){
+	ps aux | grep $1 | grep -v grep | awk '{print $2}' | while read line; do kill -9 $line; done
+}
+
+newscreen(){
+	screen -S $1 -dm
+}
+
+tellscreen(){
+	screen -S $1 -p 0 -X stuff "$2
+	"
+}
+
+initializeb2bservices(){
+	ENDPOINTS=(pim search identity cart)
+	SERVICES_DIR=/git/ua-b2b-services
+
+	cd $SERVICES_DIR
+
+	for endpoint in ${ENDPOINTS[@]}; do
+		newscreen ${endpoint}
+		tellscreen ${endpoint} "sbt ${endpoint}/run"
+	done;
+
+}
+
+gentags(){
+	/usr/local/Cellar/ctags/5.8/bin/ctags --exclude=node_modules --exclude=build --exclude=bower_components -R
+}
+
+retag(){
+	gitroot
+	gentags
+	cd -
+}
+
+startb2b(){
+
+	B2B_DIR=/git/ua-b2b
+
+	### CLEAN SLATE... TODO: Fixy this hackiness
+	killscreens
+	screen -wipe
+	killsbt
+	##########
+
+	initialize_postgres.sh > /dev/null 2>&1 &
+	initialize_elasticsearch.sh > /dev/null 2>&1 &
+	read -p "Press [Enter] when elasticsearch and postgres are running..."
+	initializeb2bservices
+	read -p "Press [Enter] when B2B Services are running..."
+	cd $B2B_DIR
+	screen -S b2bnode -dm node server
+	echo "Initialization steps finished..."
+	######################################
+}
+
+es(){
+
+	CMD="$(echo $1 | awk '{print tolower($0)}')"
+
+	if [[ $CMD == "start" ]]; then
+		startes
+		exit
+	fi
+
+	if [[ $CMD == "stop" ]]; then
+		stopes
+		exit
+	fi
+
+	echo "Usage: es [ start | stop ]"
+}
+
+startes(){
+	elasticsearch
+}
+
+stopes(){
+	curl -XPOST 'http://localhost:9200/_cluster/nodes/_local/_shutdown'
+}
+
+shutdownescluster(){
+	curl -XPOST 'http://localhost:9200/_shutdown'
+}
+
+runetl(){
+	./git/ua-es-product-stream/etlcore -d uaproducts -c uaproducts,material_type,style_type
+}
+
+updateprojectnext(){
+	project=$1
+	newscreen "${project}"
+	tellscreen "${project}" "cd /git/${project}; git pull upstream next && exit"
+}
+
+updateb2b(){
+	PROJECTSNEXT=("ua-b2b-services" "ua-b2b" "ua-b2b-schema")
+
+	for project in ${PROJECTSNEXT[@]}; do
+		newscreen "${project}"
+		tellscreen "${project}" "cd /git/${project}; git pull upstream next && exit"
+	done;
+
+	PROJECTS=("ua-cache" "ua-common" "ua-express-session" "ua-media-b2b" "ua-mongo-models" "ua-rest-b2b" "ua-runtime" "ua-es-product-stream")
+	for project in ${PROJECTS[@]}; do
+		newscreen "${project}"
+		tellscreen "${project}" "cd /git/${project}; git pull upstream master && exit"
+	done;
+}
+
+portopen(){
+	nc $1 $2 < /dev/null
+	SUCCESS=$?
+
+	if [[ $SUCCESS -eq 0 ]]
+	then
+		echo "PORT ON REMOTE END IS OPEN"
+	else
+		echo "PORT ON REMOTE END IS CLOSED"
+	fi
+
+	exit $SUCCESS
+}
+
+
